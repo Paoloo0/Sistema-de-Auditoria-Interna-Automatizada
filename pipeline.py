@@ -628,6 +628,17 @@ def correr_pipeline():
     # 6. Persistencia de hallazgos
     guardar_hallazgos(db_engine, hallazgos)
     
+    # 7. Exportamos los hallazgos a un archivo JSON para la automatizacion con Power Platform
+    ruta_json = "hallazgos_auditoria.json"
+    print(f"[*] Exportando resultados a {ruta_json} para Power Platform...")
+    try:
+        lista_dicts = [h.model_dump() for h in hallazgos]
+        with open(ruta_json, "w", encoding="utf-8") as archivo:
+            json.dump(lista_dicts, archivo, indent=4, ensure_ascii=False)
+        print(f"[+] Archivo JSON exportado con exito en: {ruta_json}")
+    except Exception as err:
+        print(f"[-] Error al exportar el archivo JSON: {err}")
+
     # Reporte de cierre por consola
     print("\n" + "=" * 60)
     print("          REPORTE DE HALLAZGOS CONSOLIDADOS")
