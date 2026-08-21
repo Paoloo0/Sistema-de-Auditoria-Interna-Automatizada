@@ -42,7 +42,8 @@ El flujo de datos del pipeline está diseñado de la siguiente forma:
     *   **Split Invoices (Fraccionamiento):** Compras de un mismo empleado al mismo proveedor en el mismo día, que individualmente son menores a $10,000 pero sumadas superan ese límite de aprobación corporativo.
     *   **Outliers Estadísticos:** Compras con un monto extremadamente inusual comparado con el promedio del Centro de Costo (Z-Score > 3.0).
 *   **IA con Structured Outputs:** Evaluación cognitiva mediante el SDK de Gemini. Usamos esquemas de Pydantic para forzar al modelo a responder con un formato JSON estricto y prevenir que se rompa la integración.
-*   **Persistencia Transaccional:** La capa final toma el JSON validado y lo guarda en la base de datos de auditoría usando transacciones seguras de SQLAlchemy (`commit` / `rollback`).
+*   **Persistencia Transaccional y Exportación:** La capa final toma el JSON validado de la IA y lo guarda en la base de datos de auditoría usando transacciones seguras de SQLAlchemy (`commit` / `rollback`). Además, exporta los hallazgos validados a un archivo local `hallazgos_auditoria.json`, permitiendo conectar este pipeline con flujos automatizados de **Power Platform (Power Automate)** para enviar alertas en Teams (Adaptive Cards) o notificaciones por Outlook.
+
 
 ---
 
