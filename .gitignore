@@ -12,3 +12,7 @@ __pycache__/
 
 # Environment variables (credentials)
 .env
+
+# Dynamic audit outputs
+hallazgos_auditoria.json
+
