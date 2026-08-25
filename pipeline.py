@@ -19,12 +19,34 @@ from pydantic import BaseModel, Field
 # SQLAlchemy para la conexion relacional
 from sqlalchemy import create_engine, text
 
+# Diccionario de traduccion para nombres de reglas profesionales
+TRADUCCION_REGLAS = {
+    "DUPLICATE_PAYMENT": "Pago Duplicado",
+    "SPLIT_INVOICE": "Fraccionamiento",
+    "WEEKEND_TRANSACTION": "Fin de Semana",
+    "OUTLIER_AMOUNT": "Monto Atipico"
+}
+
+def obtener_nombre_regla_esp(reglas: List[str]) -> str:
+    if not reglas:
+        return ""
+    if len(reglas) == 1:
+        return TRADUCCION_REGLAS.get(reglas[0], reglas[0])
+    
+    # Si hay multiples y una es transaccion en fin de semana (FDS)
+    if "WEEKEND_TRANSACTION" in reglas:
+        otras = [r for r in reglas if r != "WEEKEND_TRANSACTION"]
+        if otras:
+            return f"{TRADUCCION_REGLAS.get(otras[0], otras[0])} + FDS"
+            
+    return " + ".join([TRADUCCION_REGLAS.get(r, r) for r in reglas])
+
 # =====================================================================
 # Estructura del Hallazgo de Auditoria (Pydantic para Gemini y BD)
 # =====================================================================
 class HallazgoAuditoria(BaseModel):
     ID_Hallazgo: str = Field(description="ID unico del hallazgo, ej. AUD-2026-CONSOLIDATED-01")
-    Regla_Detectada: str = Field(description="Reglas rotas, ej. DUPLICATE_PAYMENT, SPLIT_INVOICE, u OUTLIER_AMOUNT")
+    Regla_Detectada: str = Field(description="Reglas rotas en espanol simplificado")
     Nivel_Severidad: str = Field(description="Riesgo: Low, Medium, High o Critical")
     Analisis_IA: str = Field(description="Detalle completo de lo que se encontro tras el analisis")
     Accion_Recomendada: str = Field(description="Accion sugerida para corregir el problema")
@@ -392,11 +414,14 @@ def llamar_gemini(lote: Dict[str, Any], api_key: str) -> HallazgoAuditoria:
     
     client = genai.Client(api_key=api_key)
     
+    reglas_traducidas = [TRADUCCION_REGLAS.get(r, r) for r in lote['rules_violated']]
+    reglas_esp = obtener_nombre_regla_esp(lote['rules_violated'])
+    
     instrucciones = f"""
     Eres un auditor contable evaluando posibles fraudes o errores.
     Analiza el siguiente perfil transaccional consolidado para el empleado '{lote['ID_Empleado']}' en el departamento '{lote['Centro_Costo']}':
     
-    - Reglas del sistema violadas: {lote['rules_violated']}
+    - Reglas del sistema violadas: {reglas_traducidas}
     - Suma total bajo alerta: USD {lote['amount_sum']:,.2f}
     
     Transacciones sospechosas del empleado:
@@ -405,11 +430,11 @@ def llamar_gemini(lote: Dict[str, Any], api_key: str) -> HallazgoAuditoria:
     Evalua si el conjunto de alertas tiene logica operativa normal o si es sospechoso.
     Devuelve la respuesta estructurada bajo el formato JSON del esquema:
     - ID_Hallazgo: Codigo unico como AUD-2026-CONSOLIDATED-XXX
-    - Regla_Detectada: Junta las reglas rotas separadas por comas, ej. {', '.join(lote['rules_violated'])}
+    - Regla_Detectada: Devuelve exactamente esta cadena traducida: '{reglas_esp}'
     - Nivel_Severidad: Low, Medium, High o Critical
     - Analisis_IA: Narrativa formal que analice la relacion de las compras y su riesgo corporativo
     - Accion_Recomendada: Acciones inmediatas sugeridas al equipo de control
-    - Falso_Positivo: True si consideras que es una operacion comun de la empresa, False si amerita investigar
+    - Falso_Positivo: True si consideras que es una operacion comun de la empresa (se catalogara como Sospechoso), False si amerita investigar (se catalogara como Confirmado)
     - ids_transacciones_asociadas: Devuelve exactamente los IDs del lote: {lote['ids_transacciones']}
     """
     
@@ -434,6 +459,8 @@ def simular_respuesta_ia(lote: Dict[str, Any]) -> HallazgoAuditoria:
     emp = lote['ID_Empleado']
     id_random = random.randint(100, 999)
     anio = datetime.now().year
+    
+    reglas_esp = obtener_nombre_regla_esp(reglas)
     
     if "SPLIT_INVOICE" in reglas:
         narrativa = (
@@ -478,7 +505,7 @@ def simular_respuesta_ia(lote: Dict[str, Any]) -> HallazgoAuditoria:
 
     return HallazgoAuditoria(
         ID_Hallazgo=f"AUD-{anio}-CONSOLIDATED-{id_random}",
-        Regla_Detectada=", ".join(reglas),
+        Regla_Detectada=reglas_esp,
         Nivel_Severidad=severidad,
         Analisis_IA=narrativa,
         Accion_Recomendada=accion,
