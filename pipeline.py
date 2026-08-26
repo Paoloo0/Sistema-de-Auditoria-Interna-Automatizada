@@ -19,28 +19,6 @@ from pydantic import BaseModel, Field
 # SQLAlchemy para la conexion relacional
 from sqlalchemy import create_engine, text
 
-# Diccionario de traduccion para nombres de reglas profesionales
-TRADUCCION_REGLAS = {
-    "DUPLICATE_PAYMENT": "Pago Duplicado",
-    "SPLIT_INVOICE": "Fraccionamiento",
-    "WEEKEND_TRANSACTION": "Fin de Semana",
-    "OUTLIER_AMOUNT": "Monto Atipico"
-}
-
-def obtener_nombre_regla_esp(reglas: List[str]) -> str:
-    if not reglas:
-        return ""
-    if len(reglas) == 1:
-        return TRADUCCION_REGLAS.get(reglas[0], reglas[0])
-    
-    # Si hay multiples y una es transaccion en fin de semana (FDS)
-    if "WEEKEND_TRANSACTION" in reglas:
-        otras = [r for r in reglas if r != "WEEKEND_TRANSACTION"]
-        if otras:
-            return f"{TRADUCCION_REGLAS.get(otras[0], otras[0])} + FDS"
-            
-    return " + ".join([TRADUCCION_REGLAS.get(r, r) for r in reglas])
-
 # =====================================================================
 # Estructura del Hallazgo de Auditoria (Pydantic para Gemini y BD)
 # =====================================================================
@@ -283,7 +261,7 @@ def aplicar_reglas_y_consolidar(df_crudo: pd.DataFrame) -> List[Dict[str, Any]]:
                 "Monto": fila_c['Monto'],
                 "Fecha_Transaccion": fila_c['Fecha_Transaccion'],
                 "Descripcion": fila_c['Descripcion'],
-                "motivo_alerta": "DUPLICATE_PAYMENT",
+                "motivo_alerta": "Duplicado_+FDS",
                 "detalle_alerta": f"Transaccion duplicada en monto (${fila_c['Monto']:,.2f}) y proveedor con menos de 24h de diferencia."
             })
 
@@ -311,7 +289,7 @@ def aplicar_reglas_y_consolidar(df_crudo: pd.DataFrame) -> List[Dict[str, Any]]:
                             "Monto": fila_g['Monto'],
                             "Fecha_Transaccion": fila_g['Fecha_Transaccion'],
                             "Descripcion": fila_g['Descripcion'],
-                            "motivo_alerta": "SPLIT_INVOICE",
+                            "motivo_alerta": "Faccionamiento_+FDS",
                             "detalle_alerta": f"Posible fraccionamiento: Factura individual menor a $10k pero acumula ${total_dia:,.2f} en el mismo dia."
                         })
 
@@ -331,7 +309,7 @@ def aplicar_reglas_y_consolidar(df_crudo: pd.DataFrame) -> List[Dict[str, Any]]:
                 "Monto": fila_f['Monto'],
                 "Fecha_Transaccion": fila_f['Fecha_Transaccion'],
                 "Descripcion": fila_f['Descripcion'],
-                "motivo_alerta": "WEEKEND_TRANSACTION",
+                "motivo_alerta": "Gasto_de_FDS",
                 "detalle_alerta": f"Transaccion operada en fin de semana por un monto de ${fila_f['Monto']:,.2f}, superando el limite de control de $1,000."
             })
 
@@ -356,7 +334,7 @@ def aplicar_reglas_y_consolidar(df_crudo: pd.DataFrame) -> List[Dict[str, Any]]:
                 "Monto": fila_o['Monto'],
                 "Fecha_Transaccion": fila_o['Fecha_Transaccion'],
                 "Descripcion": fila_o['Descripcion'],
-                "motivo_alerta": "OUTLIER_AMOUNT",
+                "motivo_alerta": "Monto_Atipico_+FDS",
                 "detalle_alerta": f"El monto de ${fila_o['Monto']:,.2f} representa un comportamiento atipico en el departamento (Z-Score = {fila_o['z_score']:.2f})."
             })
 
@@ -390,11 +368,21 @@ def aplicar_reglas_y_consolidar(df_crudo: pd.DataFrame) -> List[Dict[str, Any]]:
 
     lista_consolidados = []
     for emp_id, datos in consolidados.items():
+        # Si un empleado tiene Gasto_de_FDS y otra regla, mostramos solo la otra regla + FDS en el listado para no duplicar filas
+        reglas_raw = list(datos["alertas_detectadas"])
+        reglas_finales = []
+        if len(reglas_raw) > 1 and "Gasto_de_FDS" in reglas_raw:
+            otras = [r for r in reglas_raw if r != "Gasto_de_FDS"]
+            # Para cada otra regla, su representacion final ya incluye el sufijo +FDS
+            reglas_finales = otras
+        else:
+            reglas_finales = reglas_raw
+            
         lista_consolidados.append({
             "clave": f"CONSOLIDATED-{emp_id}-{datetime.now().strftime('%Y%m%d')}",
             "ID_Empleado": emp_id,
             "Centro_Costo": datos["Centro_Costo"],
-            "rules_violated": list(datos["alertas_detectadas"]),
+            "rules_violated": reglas_finales,
             "ids_transacciones": list(datos["ids_transacciones"]),
             "amount_sum": sum(tx["Monto"] for tx in datos["transacciones_sospechosas"]),
             "records": datos["transacciones_sospechosas"]
@@ -414,14 +402,11 @@ def llamar_gemini(lote: Dict[str, Any], api_key: str) -> HallazgoAuditoria:
     
     client = genai.Client(api_key=api_key)
     
-    reglas_traducidas = [TRADUCCION_REGLAS.get(r, r) for r in lote['rules_violated']]
-    reglas_esp = obtener_nombre_regla_esp(lote['rules_violated'])
-    
     instrucciones = f"""
     Eres un auditor contable evaluando posibles fraudes o errores.
     Analiza el siguiente perfil transaccional consolidado para el empleado '{lote['ID_Empleado']}' en el departamento '{lote['Centro_Costo']}':
     
-    - Reglas del sistema violadas: {reglas_traducidas}
+    - Reglas del sistema violadas: {lote['rules_violated']}
     - Suma total bajo alerta: USD {lote['amount_sum']:,.2f}
     
     Transacciones sospechosas del empleado:
@@ -430,7 +415,7 @@ def llamar_gemini(lote: Dict[str, Any], api_key: str) -> HallazgoAuditoria:
     Evalua si el conjunto de alertas tiene logica operativa normal o si es sospechoso.
     Devuelve la respuesta estructurada bajo el formato JSON del esquema:
     - ID_Hallazgo: Codigo unico como AUD-2026-CONSOLIDATED-XXX
-    - Regla_Detectada: Devuelve exactamente esta cadena traducida: '{reglas_esp}'
+    - Regla_Detectada: Junta las reglas rotas separadas por comas, ej. {', '.join(lote['rules_violated'])}
     - Nivel_Severidad: Low, Medium, High o Critical
     - Analisis_IA: Narrativa formal que analice la relacion de las compras y su riesgo corporativo
     - Accion_Recomendada: Acciones inmediatas sugeridas al equipo de control
@@ -460,9 +445,7 @@ def simular_respuesta_ia(lote: Dict[str, Any]) -> HallazgoAuditoria:
     id_random = random.randint(100, 999)
     anio = datetime.now().year
     
-    reglas_esp = obtener_nombre_regla_esp(reglas)
-    
-    if "SPLIT_INVOICE" in reglas:
+    if "Faccionamiento_+FDS" in reglas:
         narrativa = (
             f"Se identifico un posible fraccionamiento de compras (Split Invoice) realizado por el empleado {emp} "
             f"hacia el proveedor {lote['records'][0]['Nombre_Proveedor']} el dia 2026-08-08. Las transacciones individuales "
@@ -473,7 +456,7 @@ def simular_respuesta_ia(lote: Dict[str, Any]) -> HallazgoAuditoria:
         severidad = "Critical"
         es_falso = False
         
-    elif "DUPLICATE_PAYMENT" in reglas:
+    elif "Duplicado_+FDS" in reglas:
         narrativa = (
             f"Se detecto un pago duplicado confirmado para el empleado {emp} con el proveedor GLOBAL_TECH_INC. "
             f"Se pasaron dos facturas identicas de $4,500.00 con solo 15 minutos de diferencia. La descripcion de la "
@@ -483,7 +466,7 @@ def simular_respuesta_ia(lote: Dict[str, Any]) -> HallazgoAuditoria:
         severidad = "High"
         es_falso = False
         
-    elif "WEEKEND_TRANSACTION" in reglas:
+    elif "Gasto_de_FDS" in reglas or "Fin de Semana" in reglas or "Gasto_de_FDS" in reglas:
         narrativa = (
             f"El empleado {emp} registro una transaccion de ajuste de inventario el domingo por la noche por $1,200.00. "
             f"Si bien las transacciones dominicales estan restringidas, la descripcion y el monto sugieren que se trata "
@@ -493,7 +476,7 @@ def simular_respuesta_ia(lote: Dict[str, Any]) -> HallazgoAuditoria:
         severidad = "Low"
         es_falso = True
         
-    else: # OUTLIER_AMOUNT
+    else: # Monto_Atipico_+FDS
         narrativa = (
             f"El empleado {emp} registro un pago extraordinario de ${lote['amount_sum']:,.2f} para {lote['records'][0]['Nombre_Proveedor']}. "
             f"Esta compra excede de manera atipica el promedio de gastos de su departamento (Z-Score > 3.0), representando "
@@ -503,9 +486,17 @@ def simular_respuesta_ia(lote: Dict[str, Any]) -> HallazgoAuditoria:
         severidad = "High"
         es_falso = False
 
+    # Para presentar nombres limpios en la dona/tabla/barras
+    reglas_limpias = []
+    for r in reglas:
+        if r == "Gasto_de_FDS":
+            reglas_limpias.append("Fin de Semana")
+        else:
+            reglas_limpias.append(r)
+
     return HallazgoAuditoria(
         ID_Hallazgo=f"AUD-{anio}-CONSOLIDATED-{id_random}",
-        Regla_Detectada=reglas_esp,
+        Regla_Detectada=", ".join(reglas_limpias),
         Nivel_Severidad=severidad,
         Analisis_IA=narrativa,
         Accion_Recomendada=accion,
