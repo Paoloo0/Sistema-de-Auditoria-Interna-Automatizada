@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+
 """
 Pipeline de datos para auditoria interna y control de calidad
 Combina la conexion SQL, extraccion, motor de reglas de negocio en Pandas agrupando por empleado,
