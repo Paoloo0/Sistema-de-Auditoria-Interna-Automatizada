@@ -382,10 +382,10 @@ def aplicar_reglas_y_consolidar(df_crudo: pd.DataFrame) -> List[Dict[str, Any]]:
             "clave": f"CONSOLIDATED-{emp_id}-{datetime.now().strftime('%Y%m%d')}",
             "ID_Empleado": emp_id,
             "Centro_Costo": datos["Centro_Costo"],
-            "rules_violated": reglas_finales,
+            "reglas_violadas": reglas_finales,
             "ids_transacciones": list(datos["ids_transacciones"]),
-            "amount_sum": sum(tx["Monto"] for tx in datos["transacciones_sospechosas"]),
-            "records": datos["transacciones_sospechosas"]
+            "suma_cantidad": sum(tx["Monto"] for tx in datos["transacciones_sospechosas"]),
+            "registros": datos["transacciones_sospechosas"]
         })
         
     print(f"[+] Reglas ejecutadas y consolidadas. Encontramos {len(lista_consolidados)} perfiles de empleados con alertas.")
@@ -406,16 +406,16 @@ def llamar_gemini(lote: Dict[str, Any], api_key: str) -> HallazgoAuditoria:
     Eres un auditor contable evaluando posibles fraudes o errores.
     Analiza el siguiente perfil transaccional consolidado para el empleado '{lote['ID_Empleado']}' en el departamento '{lote['Centro_Costo']}':
     
-    - Reglas del sistema violadas: {lote['rules_violated']}
-    - Suma total bajo alerta: USD {lote['amount_sum']:,.2f}
+    - Reglas del sistema violadas: {lote['reglas_violadas']}
+    - Suma total bajo alerta: USD {lote['suma_cantidad']:,.2f}
     
     Transacciones sospechosas del empleado:
-    {json.dumps(lote['records'], default=str, indent=2)}
+    {json.dumps(lote['registros'], default=str, indent=2)}
     
     Evalua si el conjunto de alertas tiene logica operativa normal o si es sospechoso.
     Devuelve la respuesta estructurada bajo el formato JSON del esquema:
     - ID_Hallazgo: Codigo unico como AUD-2026-CONSOLIDATED-XXX
-    - Regla_Detectada: Junta las reglas rotas separadas por comas, ej. {', '.join(lote['rules_violated'])}
+    - Regla_Detectada: Junta las reglas rotas separadas por comas, ej. {', '.join(lote['reglas_violadas'])}
     - Nivel_Severidad: Low, Medium, High o Critical
     - Analisis_IA: Narrativa formal que analice la relacion de las compras y su riesgo corporativo
     - Accion_Recomendada: Acciones inmediatas sugeridas al equipo de control
@@ -439,7 +439,7 @@ def llamar_gemini(lote: Dict[str, Any], api_key: str) -> HallazgoAuditoria:
 
 
 def simular_respuesta_ia(lote: Dict[str, Any]) -> HallazgoAuditoria:
-    reglas = lote['rules_violated']
+    reglas = lote['reglas_violadas']
     ids = lote['ids_transacciones']
     emp = lote['ID_Empleado']
     id_random = random.randint(100, 999)
@@ -448,7 +448,7 @@ def simular_respuesta_ia(lote: Dict[str, Any]) -> HallazgoAuditoria:
     if "Faccionamiento_+FDS" in reglas:
         narrativa = (
             f"Se identifico un posible fraccionamiento de compras (Split Invoice) realizado por el empleado {emp} "
-            f"hacia el proveedor {lote['records'][0]['Nombre_Proveedor']} el dia 2026-08-08. Las transacciones individuales "
+            f"hacia el proveedor {lote['registros'][0]['Nombre_Proveedor']} el dia 2026-08-08. Las transacciones individuales "
             f"fueron emitidas en un rango de 12 minutos por montos de $9,500.00 y $9,000.00 para mantenerse por debajo "
             f"del limite de firma de $10,000.00, sumando un total de $18,500.00 que requeria firmas adicionales."
         )
@@ -478,7 +478,7 @@ def simular_respuesta_ia(lote: Dict[str, Any]) -> HallazgoAuditoria:
         
     else: # Monto_Atipico_+FDS
         narrativa = (
-            f"El empleado {emp} registro un pago extraordinario de ${lote['amount_sum']:,.2f} para {lote['records'][0]['Nombre_Proveedor']}. "
+            f"El empleado {emp} registro un pago extraordinario de ${lote['suma_cantidad']:,.2f} para {lote['registros'][0]['Nombre_Proveedor']}. "
             f"Esta compra excede de manera atipica el promedio de gastos de su departamento (Z-Score > 3.0), representando "
             f"un desvio del presupuesto asignado sin acta de aprobacion adjunta."
         )
@@ -659,5 +659,4 @@ def correr_pipeline():
     print("=" * 60)
 
 
-if __name__ == "__main__":
-    correr_pipeline()
+correr_pipeline()
