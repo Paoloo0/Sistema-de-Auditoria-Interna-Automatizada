@@ -72,7 +72,7 @@ El proyecto incluye el archivo **`Dashboard Auditoria.pbix`**, que contiene un t
    - *Alertas Confirmadas (%):* Porcentaje de alertas validadas como riesgo real (33.33%).
    - *Alertas Sospechosas (%):* Porcentaje de alertas clasificadas como falsos positivos operativos (66.67%).
 2. **Visual de Tendencia Temporal (Líneas):**
-   - *Evolución de Gasto Diario vs. Exposición al Riesgo:* Un gráfico de líneas curvas suaves que contrasta el gasto general de la empresa con el monto que se encuentra bajo alerta. Permite detectar picos atípicos (como el del 12 de agosto de $145K USD).
+   - *Evolución de Gasto Diario vs. Exposición al Riesgo:* Se puede observar en el grafico de líneas curvas suaves que contrasta el gasto general de la empresa con el monto que se encuentra bajo alerta. Permite detectar picos atípicos (como el del 12 de agosto de $145K USD).
 3. **Distribución de Riesgo por Departamento (Dona):**
    - Muestra la distribución del presupuesto en riesgo según el Centro de Costo (Operaciones, Finanzas, Sistemas, Ventas, Marketing).
 4. **Desglose de Reglas de Control Violadas (Barras Horizontales):**
